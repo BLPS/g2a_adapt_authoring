@@ -17,6 +17,11 @@
   </div>
   {{/if}}
   {{/if}}
+  {{#if inlineHelp}}
+    <div class="field-inline-help">
+      {{{inlineHelp}}}
+    </div>
+  {{/if}}
   <div class="field-editor{{#unless title}}{{#if legend}} collapsed{{/if}}{{/unless}}">
     <div class="field-error" data-error></div>
     <span data-editor></span>

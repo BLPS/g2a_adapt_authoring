@@ -19,17 +19,14 @@ define(function(require){
     },
 
     initialize: function(options) {
+      this.listenTo(Origin, 'editorView:pasteCancel', this.hidePasteZones);
       // Set form on view
       if (options && options.form) {
         this.form = options.form;
         this.filters = [];
+        this.listenTo(Origin, 'sidebarFieldsetFilter:filterForm', this.filterForm);
       }
       OriginView.prototype.initialize.apply(this, arguments);
-
-      this.listenTo(Origin, {
-        'sidebarFieldsetFilter:filterForm': this.filterForm,
-        'editorView:pasteCancel': this.hidePasteZones
-      });
     },
 
     render: function() {
@@ -50,6 +47,7 @@ define(function(require){
     },
 
     filterForm: function(filter) {
+      if (typeof this.filters === 'undefined') { return; }
       // toggle filter
       if(_.contains(this.filters, filter)) {
         this.filters = _.reject(this.filters, function(filterItem) { return filterItem === filter; });
@@ -233,6 +231,14 @@ define(function(require){
       Origin.Notify.alert({ type: 'error', title: title, text: text });
 
       Origin.trigger('sidebar:resetButtons');
+    },
+
+    remove: function () {
+      this.stopListening(Origin, 'editorView:pasteCancel', this.hidePasteZones);
+      if (typeof this.filters !== 'undefined') {
+        this.stopListening(Origin, 'sidebarFieldsetFilter:filterForm', this.filterForm);
+      }
+      OriginView.prototype.remove.apply(this, arguments);
     }
   });
 

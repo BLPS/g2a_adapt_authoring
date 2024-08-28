@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading...</title>    
+    <script>
+      function getJSON(url, callback) {
+          var xhr = new XMLHttpRequest();
+          xhr.open('GET', url, true);
+          xhr.responseType = 'json';
+          xhr.onload = function() {
+            var status = xhr.status;
+            if (status === 200) {
+              callback(null, xhr.response);
+            } else {
+              callback(status, xhr.response);
+            }
+          };
+          xhr.send();
+      };
+      getJSON('release.json?v='+Math.random(),
+      function(err, data) {
+        if (err !== null) {
+          document.getElementById("error_msg").style.display = '';
+        } else {
+          window.location.replace(data.current.url);
+        }
+      });
+    </script>
+    <style>
+      #error_msg {
+        padding: 30px 15px;
+        text-align: center;
+        font-size: 22px;
+        font-family: Verdana, Geneva, Tahoma, sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="error_msg" style="display: none;"><div class="message">This book can't be loaded!</div></div>
+  </body>
+</html>

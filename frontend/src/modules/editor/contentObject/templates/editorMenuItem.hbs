@@ -16,6 +16,14 @@
     </div>
     <div class="editor-menu-item-title">
       <h3 class="editor-menu-item-title-text">{{{title}}}</h3>
+      {{#if menuSettings}}
+        {{#if menuSettings._listMenu}}
+          {{#if menuSettings._listMenu._pageNumber}}
+            <span class="editor-menu-item-title-pn">Page: {{{menuSettings._listMenu._pageNumber}}}</span>
+          {{/if}}
+        {{/if}}
+      {{/if}}
+
     </div>
   </div>
 </div>

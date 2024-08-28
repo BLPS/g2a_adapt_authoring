@@ -20,6 +20,7 @@ var contentmanager = require('../../../lib/contentmanager'),
     database = require('../../../lib/database'),
     helpers = require('../../../lib/helpers'),
     usermanager = require('../../../lib/usermanager');
+    fs = require("fs-extra");
 
 
 function CourseContent () {
@@ -322,6 +323,15 @@ CourseContent.prototype.destroy = function (search, force, next) {
         }
         // Courses use cascading delete
         async.eachSeries(docs, function(doc, cb) {
+          if(doc._type === 'course' && doc._id && doc._id.toString().length > 0) {
+            const courseCdnPath = configuration.getConfig('courseCdnPath');
+            if(courseCdnPath && courseCdnPath.length > 0) {
+              const CDN_COURSE_FOLDER = path.join(courseCdnPath, doc._id.toString());
+              if (fs.existsSync(CDN_COURSE_FOLDER)){
+                fs.removeSync(CDN_COURSE_FOLDER);
+              }
+            }
+          }
           self.destroyChildren(doc._id, '_courseId', cb);
         }, function (err) {
           ContentPlugin.prototype.destroy.call(self, search, true, next);

@@ -121,6 +121,7 @@ define([
       fieldAttrs: field.fieldAttrs,
       fieldClass: field.fieldClass,
       help: field.help,
+      inlineHelp: field.inlineHelp,
       itemType: itemsProperties ? 'Object' : itemsInputType,
       inputType: inputType,
       legend: field.legend,

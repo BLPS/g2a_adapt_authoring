@@ -63,8 +63,30 @@
 .editor-menu-item {
   &-title {
     h3 {
-      font-size: 14px;
-      font-weight: @font-weight;
+        font-size: 14px;
+        font-weight: @font-weight;
+    }
+  }
+}
+
+.editor-menu-item {
+  &-settings {
+    position: relative;
+    z-index: 10;
+  }
+
+  &-title-pn {
+    font-size: 11px;
+    color: #959191;
+    position: absolute;
+    top: 8px;
+    user-select: none;
+    z-index: 5;
+  }
+
+  &.selected {
+    .editor-menu-item-title-pn {
+      color: #ffffff;
     }
   }
 }

@@ -2,9 +2,11 @@
 const archiver = require('archiver');
 const async = require('async');
 const exec = require('child_process').exec;
-const fs = require('fs-extra');
+const fs = require('fs');
+const fsExtra = require('fs-extra');
 const path = require('path');
 const semver = require('semver');
+const shortid = require('shortid');
 // internal
 const configuration = require('../../../lib/configuration');
 const Constants = require('../../../lib/outputmanager').Constants;
@@ -35,6 +37,15 @@ function publishCourse(courseId, mode, request, response, next) {
   const COURSES_FOLDER = path.join(FRAMEWORK_ROOT_FOLDER, Constants.Folders.AllCourses);
   const COURSE_FOLDER = path.join(COURSES_FOLDER, tenantId, courseId);
   const BUILD_FOLDER = path.join(COURSE_FOLDER, Constants.Folders.Build);
+  const CDN_FOLDER = path.join(configuration.getConfig('courseCdnPath'), courseId);
+  const CDN_RELEASE_FILE = path.join(CDN_FOLDER, 'release.json');
+  const CDN_RELEASE_ID = shortid().toLowerCase();
+  const CDN_RELEASE_FOLDER = path.join(CDN_FOLDER, CDN_RELEASE_ID);
+  const CDN_DOMAIN = configuration.getConfig('courseCdnDomain');
+  const CDN_RELEASES_NUM = 0;
+  const SRC_DIR = path.resolve(__dirname, 'src');
+
+  let releaseInfo = { current: null, releases: [], index: 0 };
 
   let customPluginName = user._id;
 
@@ -107,7 +118,7 @@ function publishCourse(courseId, mode, request, response, next) {
         }
         isForceRebuild = request && request.query.force === 'true';
 
-        if (!fs.existsSync(path.normalize(BUILD_FOLDER + '/index.html'))) {
+        if (!fsExtra.existsSync(path.normalize(BUILD_FOLDER + '/index.html'))) {
           buildFlagExists = true;
         }
 
@@ -119,7 +130,7 @@ function publishCourse(courseId, mode, request, response, next) {
     },
     function(callback) {
       if (mode === Constants.Modes.Export || mode === Constants.Modes.Publish || isForceRebuild) {
-        fs.emptyDirSync(BUILD_FOLDER);
+        fsExtra.emptyDirSync(BUILD_FOLDER);
       }
       callback(null);
     },
@@ -234,20 +245,82 @@ function publishCourse(courseId, mode, request, response, next) {
       self.removeBuildIncludes(configPath, err => callback(err));
     },
     function(callback) {
-      if (mode === Constants.Modes.Preview) { // No download required -- skip this step
-        return callback();
+      if (!fsExtra.existsSync(CDN_FOLDER)){
+        fsExtra.mkdirSync(CDN_FOLDER);
+        fsExtra.copySync(SRC_DIR, CDN_FOLDER);
       }
+      if (!fsExtra.existsSync(CDN_RELEASE_FOLDER)){
+        fsExtra.mkdirSync(CDN_RELEASE_FOLDER);
+      }
+      callback(null);
+    },
+    function(callback) {
+      fsExtra.copySync(BUILD_FOLDER, CDN_RELEASE_FOLDER);
+      callback(null);
+    },
+    function(callback) {
+      if (fsExtra.existsSync(CDN_RELEASE_FILE)){
+        releaseInfo = fsExtra.readJsonSync(CDN_RELEASE_FILE, { throws: false })
+      }
+      callback(null);
+    },
+    function(callback) {
+      releaseInfo.index = releaseInfo.index + 1;
+      const currentReleaseInfo = {
+        index: releaseInfo.index,
+        id: CDN_RELEASE_ID,
+        course: courseId,
+        date: new Date().toUTCString(),
+        url: new URL(courseId + '/' + CDN_RELEASE_ID, CDN_DOMAIN).href,
+        zip: new URL(courseId + '/' + CDN_RELEASE_ID + '.zip', CDN_DOMAIN).href
+      }
+
+      releaseInfo.current = currentReleaseInfo;
+      if (CDN_RELEASES_NUM > 0) {
+        releaseInfo.releases.push(currentReleaseInfo);
+        let rTarget = releaseInfo.index - CDN_RELEASES_NUM;
+        releaseInfo.releases = releaseInfo.releases.filter((release) => release.index > rTarget);
+      } else if (typeof releaseInfo.releases !== 'undefined') {
+        delete releaseInfo.releases;
+      }
+
+      fsExtra.writeJsonSync(CDN_RELEASE_FILE, releaseInfo);
+      callback(null);
+    },
+    function (callback) {
+      const excludeList = ['release.json', 'index.html'];
+
+      if(typeof releaseInfo.releases !== 'undefined') {
+        for (const release of releaseInfo.releases) {
+          excludeList.push(release.id);
+          excludeList.push(release.id + '.zip');
+        }
+      } else {
+        excludeList.push(releaseInfo.current.id);
+        excludeList.push(releaseInfo.current.id + '.zip');
+      }
+      fs.readdir(CDN_FOLDER, (err, files) => {
+        if (err) {
+          logger.log('error', err.message);
+          return callback(err.message, 'Error reading directories');
+        }
+        for (const file of files) {
+          if (!excludeList.includes(file)) {
+            fsExtra.removeSync(path.join(CDN_FOLDER, file));
+          }
+        }
+        return callback(null);
+      });
+    },
+    function(callback) {
       // Now zip the build package
-      var filename = path.join(COURSE_FOLDER, Constants.Filenames.Download);
-      var zipName = helpers.slugify(outputJson['course'].title);
-      var output = fs.createWriteStream(filename);
-      var archive = archiver('zip');
+      const filename = path.join(CDN_FOLDER, releaseInfo.current.id + '.zip');
+      const output = fs.createWriteStream(filename);
+      const archive = archiver('zip');
 
       output.on('close', function() {
-        resultObject.filename = filename;
-        resultObject.zipName = zipName;
         // Indicate that the zip file is ready for download
-        app.emit('zipCreated', tenantId, courseId, filename, zipName);
+        // app.emit('zipCreated', tenantId, courseId, filename, zipName);
         callback();
       });
       archive.on('error', function(err) {
@@ -257,6 +330,11 @@ function publishCourse(courseId, mode, request, response, next) {
       archive.pipe(output);
       archive.glob('**/*', { cwd: path.join(BUILD_FOLDER) });
       archive.finalize();
+    },
+    function(callback) {
+      resultObject.url = new URL(courseId, CDN_DOMAIN).href
+      resultObject.info = releaseInfo.current
+      return callback();
     }
   ], function(err) {
     if (err) {

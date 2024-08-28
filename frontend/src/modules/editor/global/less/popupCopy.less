@@ -1,0 +1,88 @@
+.course-public-url-wrap {
+    position: relative;
+}
+.course-public-url-button {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    bottom: 1px;
+    background: #ffffff;
+    padding-left: 6px;
+    padding-right: 6px;
+    display: flex;
+    align-content: center;
+    align-items: center;
+
+    svg {
+        width: 28px;
+        height: 28px;
+        opacity: 1;
+        transition: all ease-in 0.2s;
+    }
+    button {
+        padding: 0;
+        margin: 0;
+        background: none !important;
+        border: none !important;
+        outline: none !important;
+        cursor: pointer;
+        min-width: 0;
+        min-height: 0;
+        width: auto;
+        height: auto;
+        display: flex;
+    }
+    &:hover {
+        svg {
+            opacity: 0.7;
+        }
+    }
+}
+
+.course-public-url-wrap {
+    .course-public-url-copied {
+        position: absolute;
+        right: 0;
+        opacity: 1;
+        visibility: visible;
+
+        .tooltip {
+            display: none;
+            right: 0;
+            margin: 0;
+            bottom: calc(100% + 10px);
+            padding: 5px 15px;
+            font-size: 14px;
+            opacity: 0;
+
+            &.show {
+                display: block;
+                visibility: visible;
+            }
+
+            &.visible {
+                opacity: 1;
+            }
+
+            &:after {
+                content: '';
+                display: block;
+                position: absolute;
+                right: 12px;
+                bottom: -7px;
+                width: 0;
+                height: 0;
+                border-style: solid;
+                border-width: 7px 7.5px 0 7.5px;
+                border-color: #263944 transparent transparent transparent;
+            }
+        }
+    }
+}
+.course-public-url-copy {
+    display: flex;
+    justify-content: center;
+    align-content: center;
+    align-items: center;
+    cursor: pointer;
+}

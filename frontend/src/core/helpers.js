@@ -177,6 +177,11 @@ define(function(require){
       return hasPermission ? block.fn(this) : block.inverse(this);
     },
 
+    ifCourseCdnEnabled: function(block) {
+      const courseCdnPath = typeof Origin.constants.courseCdnPath !== 'undefined' ? Origin.constants.courseCdnPath : null;
+      return courseCdnPath && courseCdnPath.length > 0 ? block.fn(this) : block.inverse(this);
+    },
+
     ifMailEnabled: function(block) {
       return Origin.constants.useSmtp === true ? block.fn(this) : block.inverse(this);
     },
