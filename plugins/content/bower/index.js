@@ -27,11 +27,11 @@ var origin = require('../../../'),
     _ = require('underscore'),
     util = require('util'),
     path = require('path'),
-    unzip = require('unzipper'),
     exec = require('child_process').exec,
     IncomingForm = require('formidable').IncomingForm,
     installHelpers = require('../../../lib/installHelpers'),
-    bytes = require('bytes');
+    bytes = require('bytes'),
+    AdmZip = require("adm-zip");
 
 // errors
 function PluginPackageError (msg) {
@@ -1095,113 +1095,116 @@ function handleUploadedPlugin (req, res, next) {
     // try unzipping
     var outputPath = file.path + '_unzipped';
     var rs = fs.createReadStream(file.path);
-    var ws = unzip.Extract({ path: outputPath });
+
     rs.on('error', function (error) {
       return next(error);
     });
-    ws.on('error', function (error) {
+
+    var zip = new AdmZip(file.path);
+    try {
+      zip.extractAllTo(/*target path*/ outputPath, true);
+    } catch (error) {
+      console.error(error);
       return next(error);
-    });
-    ws.on('close', function () {
-      // enumerate output directory and search for bower.json
-      fs.readdir(outputPath, function (err, files) {
-        if (err) {
-          return next(err);
-        }
+    }
 
-        var packageJson;
-        var canonicalDir;
+    // enumerate output directory and search for bower.json
+    fs.readdir(outputPath, function (err, files) {
+      if (err) {
+        return next(err);
+      }
 
-        // Read over each directory checking for the correct one that contains a bower.json file
-        fs.readdir(outputPath, function (err, directoryList) {
+      var packageJson;
+      var canonicalDir;
 
-          async.some(directoryList, function(directory, asyncCallback) {
-            var bowerPath = path.join(outputPath, directory, 'bower.json');
+      // Read over each directory checking for the correct one that contains a bower.json file
+      fs.readdir(outputPath, function (err, directoryList) {
 
-            fs.exists(bowerPath, function(exists) {
-              if (exists) {
-                canonicalDir = path.join(outputPath, directory);
-                try {
-                  packageJson = require(bowerPath);
-                } catch (error) {
-                  logger.log('error', 'failed to find bower file at ' + bowerPath, error);
-                  return asyncCallback();
-                }
-                asyncCallback(true);
-              } else {
-                asyncCallback();
+        async.some(directoryList, function(directory, asyncCallback) {
+          var bowerPath = path.join(outputPath, directory, 'bower.json');
+
+          fs.exists(bowerPath, function(exists) {
+            if (exists) {
+              canonicalDir = path.join(outputPath, directory);
+              try {
+                packageJson = require(bowerPath);
+              } catch (error) {
+                logger.log('error', 'failed to find bower file at ' + bowerPath, error);
+                return asyncCallback();
               }
-            });
-
-          }, function(hasResults) {
-            if (!hasResults) {
-              return next(app.polyglot.t('app.cannotfindbower'));
+              asyncCallback(true);
+            } else {
+              asyncCallback();
             }
+          });
 
-            if (!packageJson) {
-              return next(app.polyglot.t('app.unrecognisedplugin'));
+        }, function(hasResults) {
+          if (!hasResults) {
+            return next(app.polyglot.t('app.cannotfindbower'));
+          }
+
+          if (!packageJson) {
+            return next(app.polyglot.t('app.unrecognisedplugin'));
+          }
+
+          // extract the plugin type from the package
+          var pluginType = extractPluginType(packageJson);
+          if (!pluginType) {
+            return next(new PluginPackageError(app.polyglot.t('app.unrecognisedpluginforpackage', {
+              package: packageJson.name
+            })));
+          }
+
+          // mark as a locally installed package
+          packageJson.isLocalPackage = true;
+
+          // construct packageInfo
+          var packageInfo = {
+            canonicalDir: canonicalDir,
+            pkgMeta: packageJson
+          };
+
+          installHelpers.getInstalledFrameworkVersion(function(error, frameworkVersion) {
+            if(error) {
+              return next(error);
             }
-
-            // extract the plugin type from the package
-            var pluginType = extractPluginType(packageJson);
-            if (!pluginType) {
-              return next(new PluginPackageError(app.polyglot.t('app.unrecognisedpluginforpackage', {
-                package: packageJson.name
+            // Check if the framework has been defined on the plugin and that it's not compatible
+            if (packageInfo.pkgMeta.framework && !semver.satisfies(semver.clean(frameworkVersion), packageInfo.pkgMeta.framework, { includePrerelease: true })) {
+              return next(new PluginPackageError(app.polyglot.t('app.incompatibleframework', {
+                framework: frameworkVersion
               })));
             }
-
-            // mark as a locally installed package
-            packageJson.isLocalPackage = true;
-
-            // construct packageInfo
-            var packageInfo = {
-              canonicalDir: canonicalDir,
-              pkgMeta: packageJson
-            };
-
-            installHelpers.getInstalledFrameworkVersion(function(error, frameworkVersion) {
-              if(error) {
+            app.contentmanager.getContentPlugin(pluginType, function (error, contentPlugin) {
+              if (error) {
                 return next(error);
               }
-              // Check if the framework has been defined on the plugin and that it's not compatible
-              if (packageInfo.pkgMeta.framework && !semver.satisfies(semver.clean(frameworkVersion), packageInfo.pkgMeta.framework, { includePrerelease: true })) {
-                return next(new PluginPackageError(app.polyglot.t('app.incompatibleframework', {
-                  framework: frameworkVersion
-                })));
-              }
-              app.contentmanager.getContentPlugin(pluginType, function (error, contentPlugin) {
+              addPackage(contentPlugin.bowerConfig, packageInfo, { strict: true }, function (error, results) {
                 if (error) {
                   return next(error);
                 }
-                addPackage(contentPlugin.bowerConfig, packageInfo, { strict: true }, function (error, results) {
-                  if (error) {
-                    return next(error);
-                  }
 
-                  function sendResponse() {
-                    res.statusCode = 200;
-                    return res.json({
-                      success: true,
-                      pluginType: pluginType
-                    });
-                  }
+                function sendResponse() {
+                  res.statusCode = 200;
+                  return res.json({
+                    success: true,
+                    pluginType: pluginType
+                  });
+                }
 
-                  Promise.all([
-                    fs.remove(file.path),
-                    fs.remove(outputPath)
-                  ]).then(sendResponse).catch(sendResponse);
+                Promise.all([
+                  fs.remove(file.path),
+                  fs.remove(outputPath)
+                ]).then(sendResponse).catch(sendResponse);
 
-                });
               });
             });
-
           });
 
         });
 
       });
+
     });
-    rs.pipe(ws);
 
     // response should be sent by one of the above handlers
   });
