@@ -1,6 +1,6 @@
 {
-  "name": "adapt_authoring",
-  "version": "0.11.5",
+  "name": "g2a_adapt_authoring",
+  "version": "0.11.6",
   "license": "GPL-3.0",
   "description": "A server-based user interface for authoring eLearning courses using the Adapt Framework.",
   "keywords": [
@@ -9,7 +9,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/adaptlearning/adapt_authoring.git"
+    "url": "https://github.com/BLPS/g2a_adapt_authoring.git"
   },
   "main": "index",
   "engines": {
@@ -82,8 +82,7 @@
     "traverse": "^0.6.7",
     "underscore": "^1.13.2",
     "winston": "^3.7.2",
-    "yauzl": "^2.10.0",
-    "unzipper": "^0.10.11"
+    "yauzl": "^2.10.0"
   },
   "devDependencies": {
     "mocha": "^6.2.3",
