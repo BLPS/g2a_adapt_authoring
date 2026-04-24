@@ -1,7 +1,7 @@
 var async = require('async');
 var chalk = require('chalk');
 var fs = require('fs-extra');
-var optimist = require('optimist');
+var argv = require('minimist')(process.argv.slice(2));
 var path = require('path');
 var crypto = require('crypto');
 
@@ -261,7 +261,7 @@ installHelpers.checkPrimaryDependencies(function(error) {
       ]
     };
     if(!IS_INTERACTIVE) {
-      if (installHelpers.inputHelpers.toBoolean(optimist.argv.useJSON)) {
+      if (installHelpers.inputHelpers.toBoolean(argv.useJSON)) {
         USE_CONFIG = true;
       }
       return start();
@@ -292,7 +292,7 @@ function generatePromptOverrides() {
   const sessionSecret = USE_CONFIG && configData.sessionSecret || crypto.randomBytes(64).toString('hex');
   addConfig({ sessionSecret: sessionSecret });
   // NOTE config.json < cmd args
-  return Object.assign({}, configData, optimist.argv);
+  return Object.assign({}, configData, argv);
 }
 
 function start() {

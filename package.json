@@ -1,6 +1,6 @@
 {
   "name": "g2a_adapt_authoring",
-  "version": "0.11.6",
+  "version": "0.11.7",
   "license": "GPL-3.0",
   "description": "A server-based user interface for authoring eLearning courses using the Adapt Framework.",
   "keywords": [
@@ -13,7 +13,7 @@
   },
   "main": "index",
   "engines": {
-    "node": "16 || 18"
+    "node": ">=18"
   },
   "scripts": {
     "test": "grunt test",
@@ -66,23 +66,26 @@
     "mime": "^2.6.0",
     "moment": "^2.29.4",
     "mongodb-uri": "^0.9.7",
-    "mongoose": "^5.13.22",
+    "mongoose": "^6.13.9",
     "morgan": "^1.10.0",
     "multer": "^1.4.4",
     "needle": "^2.9.1",
     "node-polyglot": "^2.4.2",
     "nodemailer": "^6.7.3",
-    "optimist": "^0.6.1",
+    "axios": "^1.15.2",
+    "minimist": "^1.2.8",
     "passport": "^0.6.0",
     "passport-local": "^1.0.0",
-    "request": "^2.88.0",
     "semver": "^6.3.0",
     "serve-favicon": "^2.5.0",
     "shortid": "^2.2.16",
     "traverse": "^0.6.7",
-    "underscore": "^1.13.2",
+    "underscore": "^1.13.8",
     "winston": "^3.7.2",
     "yauzl": "^2.10.0"
+  },
+  "overrides": {
+    "underscore": "^1.13.8"
   },
   "devDependencies": {
     "mocha": "^6.2.3",
@@ -90,6 +93,6 @@
     "mocha-simple-html-reporter": "^1.1.0",
     "mongodb": "^4.10.0",
     "should": "^13.2.3",
-    "supertest": "^4.0.2"
+    "supertest": "^7.2.2"
   }
 }

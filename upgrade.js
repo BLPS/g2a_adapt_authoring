@@ -1,5 +1,5 @@
 var async = require('async');
-var { argv } = require('optimist');
+var argv = require('minimist')(process.argv.slice(2));
 var chalk = require('chalk');
 var path = require('path');
 
