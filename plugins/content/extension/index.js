@@ -6,8 +6,10 @@
 var _ = require('underscore');
 var async = require('async');
 var bower = require('bower');
+var fse = require('fs-extra');
 var fs = require('fs');
 var path = require('path');
+var semver = require('semver');
 var util = require('util');
 
 var BowerPlugin = require('../bower');
@@ -513,6 +515,63 @@ Extension.prototype.getUses = function (callback, id) {
   });
 };
 
+// ---------------------------------------------------------------------------
+// Dynamic extension frontend serving
+// Serves plugin frontend/ files directly from versions/ at runtime.
+// No file copying or bundle rebuilds needed after install.
+// ---------------------------------------------------------------------------
+
+function getExtensionFrontendSrc(extensionName) {
+  var versionBase = path.join(__dirname, 'versions', extensionName);
+  if (!fse.existsSync(versionBase)) return null;
+
+  var versionDirs = [];
+  try {
+    versionDirs = fse.readdirSync(versionBase).filter(function(d) {
+      return fse.statSync(path.join(versionBase, d)).isDirectory() && semver.valid(d);
+    });
+  } catch (e) {
+    return null;
+  }
+
+  if (!versionDirs.length) return null;
+
+  versionDirs.sort(semver.rcompare);
+  var frontendPath = path.join(versionBase, versionDirs[0], extensionName, 'frontend');
+  return fse.existsSync(frontendPath) ? frontendPath : null;
+}
+
+// Per-extension allowed-file manifest cache (populated on first request).
+var frontendServeManifestCache = {};
+
+// Returns the serveFiles allowlist from the extension's package.json (source of
+// truth), falling back to bower.json for extensions that pre-date package.json.
+// Returns null when neither file declares serveFiles (only the .js check applies).
+function getExtensionFrontendManifest(extName, frontendDir) {
+  if (Object.prototype.hasOwnProperty.call(frontendServeManifestCache, extName)) {
+    return frontendServeManifestCache[extName];
+  }
+  // Both metadata files live one level above the frontend/ directory
+  var extDir = path.dirname(frontendDir);
+  var result = null;
+  var candidates = ['package.json', 'bower.json'];
+  for (var i = 0; i < candidates.length; i++) {
+    try {
+      var meta = JSON.parse(fse.readFileSync(path.join(extDir, candidates[i]), 'utf8'));
+      if (Array.isArray(meta.serveFiles)) {
+        result = meta.serveFiles;
+        break;
+      }
+    } catch (e) {
+      // file missing or invalid — try next candidate
+    }
+  }
+  frontendServeManifestCache[extName] = result;
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+
 /**
  * essential setup
  *
@@ -551,7 +610,55 @@ function initialize () {
         res.status(200).json({ success: true });
       });
     });
+
+    // Dynamically serves extension frontend files and generates the require bundle.
+    // bundle.js → define([...]) listing all installed extensions with a frontend/
+    // {name}/...  → serves the file directly from versions/{name}/{ver}/{name}/frontend/
+    rest.get('/extension-frontends/*', function(req, res, next) {
+      var urlPath = req.params[0];
+
+      if (urlPath === 'bundle.js' || urlPath === 'bundle') {
+        var versionsBase = path.join(__dirname, 'versions');
+        var moduleIds = [];
+        if (fse.existsSync(versionsBase)) {
+          try {
+            var extensions = fse.readdirSync(versionsBase).filter(function(d) {
+              return fse.statSync(path.join(versionsBase, d)).isDirectory();
+            });
+            moduleIds = extensions.filter(function(name) {
+              return getExtensionFrontendSrc(name) !== null;
+            }).map(function(name) {
+              return 'extension-frontends/' + name + '/index';
+            });
+          } catch (e) {
+            logger.log('error', '[extension-frontend] Bundle error: ' + e.message);
+          }
+        }
+        var deps = moduleIds.map(function(id) { return '"' + id + '"'; }).join(',');
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        return res.send('define([' + deps + '], function() {});');
+      }
+
+      var parts = urlPath.split('/');
+      var extName = parts[0];
+      var filePath = parts.slice(1).join('/');
+      var frontendDir = getExtensionFrontendSrc(extName);
+      if (!frontendDir || !filePath) return next();
+      // Manifest check — allowlist declared in the extension's bower.json serveFiles
+      var allowedFiles = getExtensionFrontendManifest(extName, frontendDir);
+      if (allowedFiles !== null && !allowedFiles.includes(filePath)) {
+        return res.status(403).send('Forbidden');
+      }
+      var ext = path.extname(filePath).toLowerCase();
+      if (ext !== '.js') return res.status(403).send('Forbidden');
+      var absolutePath = path.resolve(path.join(frontendDir, filePath));
+      if (!absolutePath.startsWith(path.resolve(frontendDir) + path.sep)) {
+        return res.status(403).send('Forbidden');
+      }
+      res.sendFile(absolutePath);
+    });
   });
+
   // HACK surface this properly somewhere
   app.contentmanager.toggleExtensions = toggleExtensions;
 

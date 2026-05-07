@@ -261,6 +261,7 @@ function initialize () {
                     return next(err);
                   }
 
+                  app.emit('bower:plugin:removed', { type: type, name: doc.name });
                   return res.status(200).json({success: true});
                 }
               );
@@ -725,6 +726,7 @@ function addPackage (plugin, packageInfo, options, cb) {
         copyPlugin
       ], function(error, plugin) {
         if (error) return cb(error);
+        app.emit('bower:plugin:added', pkgMeta);
         cb(null, plugin);
       });
     });

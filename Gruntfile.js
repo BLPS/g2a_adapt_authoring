@@ -109,7 +109,8 @@ module.exports = function(grunt) {
           mainConfigFile: "frontend/src/core/config.js",
           out: "frontend/build/js/origin.js",
           preserveLicenseComments: true,
-          optimize: "none"
+          optimize: "none",
+          paths: { 'plugins/plugins': 'empty:' }
         }
       },
       compile: {
@@ -118,7 +119,8 @@ module.exports = function(grunt) {
           name: 'core/app',
           mainConfigFile: "frontend/src/core/config.js",
           out: "frontend/build/js/origin.js",
-          optimize: "none"
+          optimize: "none",
+          paths: { 'plugins/plugins': 'empty:' }
         }
       }
     },
