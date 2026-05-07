@@ -58,6 +58,10 @@ define([
 
     var getType = function() {
       if (inputType) {
+        if (typeof inputType === 'string' && !Backbone.Form.editors[inputType]) {
+          console.warn('[scaffold] Custom field type "' + inputType + '" is not registered (extension may not have loaded). Falling back to Text.');
+          return 'Text';
+        }
         return inputType;
       }
 

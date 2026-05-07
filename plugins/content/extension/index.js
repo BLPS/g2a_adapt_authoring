@@ -541,15 +541,18 @@ function getExtensionFrontendSrc(extensionName) {
   return fse.existsSync(frontendPath) ? frontendPath : null;
 }
 
-// Per-extension allowed-file manifest cache (populated on first request).
+// Manifest cache keyed by the full frontendDir path so a version upgrade
+// (which changes the path) automatically causes a cache miss.
 var frontendServeManifestCache = {};
 
 // Returns the serveFiles allowlist from the extension's package.json (source of
 // truth), falling back to bower.json for extensions that pre-date package.json.
 // Returns null when neither file declares serveFiles (only the .js check applies).
+// Entries that are absolute paths, contain traversal sequences, or resolve
+// outside frontendDir are rejected with a warning at manifest-read time.
 function getExtensionFrontendManifest(extName, frontendDir) {
-  if (Object.prototype.hasOwnProperty.call(frontendServeManifestCache, extName)) {
-    return frontendServeManifestCache[extName];
+  if (Object.prototype.hasOwnProperty.call(frontendServeManifestCache, frontendDir)) {
+    return frontendServeManifestCache[frontendDir];
   }
   // Both metadata files live one level above the frontend/ directory
   var extDir = path.dirname(frontendDir);
@@ -566,7 +569,29 @@ function getExtensionFrontendManifest(extName, frontendDir) {
       // file missing or invalid — try next candidate
     }
   }
-  frontendServeManifestCache[extName] = result;
+
+  if (Array.isArray(result)) {
+    var resolvedBase = path.resolve(frontendDir);
+    result = result.filter(function(entry) {
+      if (typeof entry !== 'string' || !entry) return false;
+      if (path.isAbsolute(entry)) {
+        logger.log('warn', '[extension-frontend] Rejected absolute path in serveFiles "' + entry + '" for ' + extName);
+        return false;
+      }
+      if (entry.split(/[\/\\]/).indexOf('..') !== -1) {
+        logger.log('warn', '[extension-frontend] Rejected traversal sequence in serveFiles "' + entry + '" for ' + extName);
+        return false;
+      }
+      var resolved = path.resolve(path.join(frontendDir, entry));
+      if (!resolved.startsWith(resolvedBase + path.sep)) {
+        logger.log('warn', '[extension-frontend] Rejected out-of-bounds serveFiles "' + entry + '" for ' + extName);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  frontendServeManifestCache[frontendDir] = result;
   return result;
 }
 
@@ -626,7 +651,18 @@ function initialize () {
               return fse.statSync(path.join(versionsBase, d)).isDirectory();
             });
             moduleIds = extensions.filter(function(name) {
-              return getExtensionFrontendSrc(name) !== null;
+              var frontendDir = getExtensionFrontendSrc(name);
+              if (!frontendDir) return false;
+              var allowedFiles = getExtensionFrontendManifest(name, frontendDir);
+              if (allowedFiles !== null && !allowedFiles.includes('index.js')) {
+                logger.log('warn', '[extension-frontend] Skipping "' + name + '" from bundle: index.js not in serveFiles');
+                return false;
+              }
+              if (!fse.existsSync(path.join(frontendDir, 'index.js'))) {
+                logger.log('warn', '[extension-frontend] Skipping "' + name + '" from bundle: index.js not found on disk');
+                return false;
+              }
+              return true;
             }).map(function(name) {
               return 'extension-frontends/' + name + '/index';
             });
@@ -642,8 +678,19 @@ function initialize () {
       var parts = urlPath.split('/');
       var extName = parts[0];
       var filePath = parts.slice(1).join('/');
+
+      // Reject traversal in extName — must be a plain package name with no path chars.
+      // %2E%2E is decoded by Express before reaching here, so checking for '..' is sufficient.
+      if (!extName || extName === '..' || extName.indexOf('/') !== -1 || extName.indexOf('\\') !== -1 || extName.charAt(0) === '.') {
+        return res.status(400).send('Bad Request');
+      }
+      // Reject traversal sequences in filePath before touching the filesystem.
+      if (!filePath || filePath.split('/').indexOf('..') !== -1) {
+        return res.status(403).send('Forbidden');
+      }
+
       var frontendDir = getExtensionFrontendSrc(extName);
-      if (!frontendDir || !filePath) return next();
+      if (!frontendDir) return next();
       // Manifest check — allowlist declared in the extension's bower.json serveFiles
       var allowedFiles = getExtensionFrontendManifest(extName, frontendDir);
       if (allowedFiles !== null && !allowedFiles.includes(filePath)) {
@@ -655,7 +702,15 @@ function initialize () {
       if (!absolutePath.startsWith(path.resolve(frontendDir) + path.sep)) {
         return res.status(403).send('Forbidden');
       }
-      res.sendFile(absolutePath);
+      res.sendFile(absolutePath, function(err) {
+        if (!err) return;
+        if (err.code === 'ENOENT' || err.status === 404) {
+          logger.log('warn', '[extension-frontend] File not found: ' + absolutePath);
+          return res.status(404).json({ success: false, message: 'Extension file not found: ' + filePath });
+        }
+        logger.log('error', '[extension-frontend] Error serving ' + absolutePath + ': ' + err.message);
+        return res.status(500).json({ success: false, message: 'Internal server error' });
+      });
     });
   });
 
