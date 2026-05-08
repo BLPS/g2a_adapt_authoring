@@ -517,28 +517,30 @@ Extension.prototype.getUses = function (callback, id) {
 
 // ---------------------------------------------------------------------------
 // Dynamic extension frontend serving
-// Serves plugin frontend/ files directly from versions/ at runtime.
-// No file copying or bundle rebuilds needed after install.
+// Serves plugin frontend/ files at runtime from two possible locations:
+//   1. versions/{name}/{ver}/{name}/frontend/  — uploaded via AAT (takes priority)
+//   2. bower/bowercache/{name}/frontend/       — installed as framework dependency
 // ---------------------------------------------------------------------------
 
 function getExtensionFrontendSrc(extensionName) {
+  // 1. versions/ — uploaded via AAT, highest priority
   var versionBase = path.join(__dirname, 'versions', extensionName);
-  if (!fse.existsSync(versionBase)) return null;
-
-  var versionDirs = [];
-  try {
-    versionDirs = fse.readdirSync(versionBase).filter(function(d) {
-      return fse.statSync(path.join(versionBase, d)).isDirectory() && semver.valid(d);
-    });
-  } catch (e) {
-    return null;
+  if (fse.existsSync(versionBase)) {
+    var versionDirs = [];
+    try {
+      versionDirs = fse.readdirSync(versionBase).filter(function(d) {
+        return fse.statSync(path.join(versionBase, d)).isDirectory() && semver.valid(d);
+      });
+    } catch (e) {}
+    if (versionDirs.length) {
+      versionDirs.sort(semver.rcompare);
+      var frontendPath = path.join(versionBase, versionDirs[0], extensionName, 'frontend');
+      if (fse.existsSync(frontendPath)) return frontendPath;
+    }
   }
-
-  if (!versionDirs.length) return null;
-
-  versionDirs.sort(semver.rcompare);
-  var frontendPath = path.join(versionBase, versionDirs[0], extensionName, 'frontend');
-  return fse.existsSync(frontendPath) ? frontendPath : null;
+  // 2. bowercache/ — installed as part of the adapt framework
+  var bowercachePath = path.join(__dirname, '..', 'bower', 'bowercache', extensionName, 'frontend');
+  return fse.existsSync(bowercachePath) ? bowercachePath : null;
 }
 
 // Manifest cache keyed by the full frontendDir path so a version upgrade
@@ -644,31 +646,46 @@ function initialize () {
 
       if (urlPath === 'bundle.js' || urlPath === 'bundle') {
         var versionsBase = path.join(__dirname, 'versions');
+        var bowercacheBase = path.join(__dirname, '..', 'bower', 'bowercache');
         var moduleIds = [];
-        if (fse.existsSync(versionsBase)) {
-          try {
-            var extensions = fse.readdirSync(versionsBase).filter(function(d) {
+        try {
+          // Collect unique extension names from both sources.
+          // versions/ is enumerated first so duplicates from bowercache/ are skipped
+          // (getExtensionFrontendSrc already prefers versions/ over bowercache/).
+          var seen = Object.create(null);
+          var candidates = [];
+          if (fse.existsSync(versionsBase)) {
+            fse.readdirSync(versionsBase).filter(function(d) {
               return fse.statSync(path.join(versionsBase, d)).isDirectory();
+            }).forEach(function(name) {
+              if (!seen[name]) { seen[name] = true; candidates.push(name); }
             });
-            moduleIds = extensions.filter(function(name) {
-              var frontendDir = getExtensionFrontendSrc(name);
-              if (!frontendDir) return false;
-              var allowedFiles = getExtensionFrontendManifest(name, frontendDir);
-              if (allowedFiles !== null && !allowedFiles.includes('index.js')) {
-                logger.log('warn', '[extension-frontend] Skipping "' + name + '" from bundle: index.js not in serveFiles');
-                return false;
-              }
-              if (!fse.existsSync(path.join(frontendDir, 'index.js'))) {
-                logger.log('warn', '[extension-frontend] Skipping "' + name + '" from bundle: index.js not found on disk');
-                return false;
-              }
-              return true;
-            }).map(function(name) {
-              return 'extension-frontends/' + name + '/index';
-            });
-          } catch (e) {
-            logger.log('error', '[extension-frontend] Bundle error: ' + e.message);
           }
+          if (fse.existsSync(bowercacheBase)) {
+            fse.readdirSync(bowercacheBase).filter(function(d) {
+              return fse.statSync(path.join(bowercacheBase, d)).isDirectory();
+            }).forEach(function(name) {
+              if (!seen[name]) { seen[name] = true; candidates.push(name); }
+            });
+          }
+          moduleIds = candidates.filter(function(name) {
+            var frontendDir = getExtensionFrontendSrc(name);
+            if (!frontendDir) return false;
+            var allowedFiles = getExtensionFrontendManifest(name, frontendDir);
+            if (allowedFiles !== null && !allowedFiles.includes('index.js')) {
+              logger.log('warn', '[extension-frontend] Skipping "' + name + '" from bundle: index.js not in serveFiles');
+              return false;
+            }
+            if (!fse.existsSync(path.join(frontendDir, 'index.js'))) {
+              logger.log('warn', '[extension-frontend] Skipping "' + name + '" from bundle: index.js not found on disk');
+              return false;
+            }
+            return true;
+          }).map(function(name) {
+            return 'extension-frontends/' + name + '/index';
+          });
+        } catch (e) {
+          logger.log('error', '[extension-frontend] Bundle error: ' + e.message);
         }
         var deps = moduleIds.map(function(id) { return '"' + id + '"'; }).join(',');
         res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
@@ -701,6 +718,22 @@ function initialize () {
       var absolutePath = path.resolve(path.join(frontendDir, filePath));
       if (!absolutePath.startsWith(path.resolve(frontendDir) + path.sep)) {
         return res.status(403).send('Forbidden');
+      }
+      // path.resolve is symlink-blind — a symlink inside frontend/ could point
+      // outside the directory. Re-verify using the real (dereferenced) paths.
+      try {
+        var realAbsPath = fse.realpathSync(absolutePath);
+        var realFrontendDir = fse.realpathSync(path.resolve(frontendDir));
+        if (!realAbsPath.startsWith(realFrontendDir + path.sep)) {
+          logger.log('warn', '[extension-frontend] Symlink escape blocked for "' + extName + '": ' + absolutePath + ' -> ' + realAbsPath);
+          return res.status(403).send('Forbidden');
+        }
+      } catch (e) {
+        if (e.code !== 'ENOENT') {
+          logger.log('warn', '[extension-frontend] Path resolution error for ' + absolutePath + ': ' + e.message);
+          return res.status(403).send('Forbidden');
+        }
+        // ENOENT: file does not exist, no symlink to follow — let sendFile return 404.
       }
       res.sendFile(absolutePath, function(err) {
         if (!err) return;
