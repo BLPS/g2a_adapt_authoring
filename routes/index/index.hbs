@@ -8,6 +8,7 @@
     <script type="text/javascript" src="modernizr.js"></script>
     <script src="//cdn.ckeditor.com/4.22.1/full-all/ckeditor.js"></script>
     {{#if isProduction}}
+      <script>var require = { paths: { 'plugins/plugins': '/api/extension-frontends/bundle', 'extension-frontends': '/api/extension-frontends' } };</script>
       <script type="text/javascript" src="require.js" data-main="js/origin.js{{#if dateStampAsString}}?{{dateStampAsString}}{{/if}}"></script>
     {{else}}
       <script type="text/javascript" src="require.js"></script>
